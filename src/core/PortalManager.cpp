@@ -207,6 +207,16 @@ void CPortalManager::onGlobal(uint32_t name, const char* interface, uint32_t ver
             rc<wl_proxy*>(wl_registry_bind(rc<wl_registry*>(m_sWaylandConnection.registry->resource()), name, &zwp_virtual_keyboard_manager_v1_interface, version)));
     }
 
+    else if (INTERFACE == ext_data_control_manager_v1_interface.name) {
+        m_sWaylandConnection.dataControlMgr = makeShared<CCExtDataControlManagerV1>(
+            rc<wl_proxy*>(wl_registry_bind(rc<wl_registry*>(m_sWaylandConnection.registry->resource()), name, &ext_data_control_manager_v1_interface, std::min(version, 1u))));
+    }
+
+    else if (INTERFACE == zwlr_data_control_manager_v1_interface.name) {
+        m_sWaylandConnection.wlrDataControlMgr = makeShared<CCZwlrDataControlManagerV1>(
+            rc<wl_proxy*>(wl_registry_bind(rc<wl_registry*>(m_sWaylandConnection.registry->resource()), name, &zwlr_data_control_manager_v1_interface, std::min(version, 1u))));
+    }
+
     else if (INTERFACE == wl_output_interface.name) {
         const auto POUTPUT = m_vOutputs
                                  .emplace_back(std::make_unique<SOutput>(makeShared<CCWlOutput>(
@@ -460,6 +470,17 @@ void CPortalManager::init() {
     // Missing input protocols are reported through AvailableDeviceTypes.
     m_sPortals.remoteDesktop = std::make_unique<CRemoteDesktopPortal>(m_sWaylandConnection.virtualPointerMgr, m_sWaylandConnection.virtualKeyboardMgr);
 
+    // Clipboard extends RemoteDesktop and InputCapture sessions, and is advertised by the
+    // portal descriptor too.
+    std::vector<IClipboardHost*> clipboardHosts = {m_sPortals.remoteDesktop.get()};
+    if (m_sPortals.inputCapture)
+        clipboardHosts.emplace_back(m_sPortals.inputCapture.get());
+    // The standard protocol is preferred over the older wlroots one.
+    auto dataControl = makeDataControl(m_sWaylandConnection.dataControlMgr, m_sWaylandConnection.seat);
+    if (!dataControl)
+        dataControl = makeDataControl(m_sWaylandConnection.wlrDataControlMgr, m_sWaylandConnection.seat);
+    m_sPortals.clipboard = std::make_unique<CClipboardPortal>(std::move(dataControl), std::move(clipboardHosts));
+
     // Now that all D-Bus objects are registered, claim our service name.
     // The frontend portal introspects when it sees our name appear; if we claim
     // the name too early (before RemoteDesktop object is registered), the
@@ -675,6 +696,7 @@ void CPortalManager::startEventLoop() {
     m_sHelpers.toplevel.reset();
     m_sHelpers.toplevelMapping.reset();
     m_sPortals.inputCapture.reset();
+    m_sPortals.clipboard.reset();
     m_sPortals.remoteDesktop.reset();
 
     m_pConnection.reset();
@@ -830,6 +852,8 @@ void CPortalManager::releaseWayland() {
     // Input proxies must also be destroyed before disconnecting the display.
     m_sWaylandConnection.virtualKeyboardMgr.reset();
     m_sWaylandConnection.virtualPointerMgr.reset();
+    m_sWaylandConnection.dataControlMgr.reset();
+    m_sWaylandConnection.wlrDataControlMgr.reset();
     m_sWaylandConnection.keyboard.reset();
     m_sWaylandConnection.seat.reset();
     m_sWaylandConnection.registry.reset();

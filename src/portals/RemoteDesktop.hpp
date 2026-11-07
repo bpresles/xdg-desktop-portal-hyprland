@@ -9,6 +9,7 @@
 #include "../includes.hpp"
 #include "../dbusDefines.hpp"
 #include "../shared/Session.hpp"
+#include "../shared/ClipboardHost.hpp"
 #include "../helpers/Log.hpp"
 
 #include "wlr-virtual-pointer-unstable-v1.hpp"
@@ -20,7 +21,7 @@ struct eis_seat;
 struct eis_device;
 class CKeyboardState;
 
-class CRemoteDesktopPortal {
+class CRemoteDesktopPortal : public IClipboardHost {
   public:
     CRemoteDesktopPortal(SP<CCZwlrVirtualPointerManagerV1> pointerMgr, SP<CCZwpVirtualKeyboardManagerV1> keyboardMgr);
     ~CRemoteDesktopPortal();
@@ -50,6 +51,12 @@ class CRemoteDesktopPortal {
     // EIS event processing (called from the main event loop)
     void processEISEvents();
     void updateEISPointerRegions();
+
+    // IClipboardHost: a clipboard can only be requested for a session that exists and
+    // hasn't been started yet, and is usable for as long as the session lives.
+    bool hasSession(const sdbus::ObjectPath& path) override;
+    bool requestClipboard(const sdbus::ObjectPath& path) override;
+    bool clipboardEnabled(const sdbus::ObjectPath& path) override;
 
   private:
     struct SKeycode {
@@ -107,8 +114,9 @@ class CRemoteDesktopPortal {
         uint32_t                      deviceTypes = 0; // bitmask: 1=keyboard, 2=pointer, 4=touchscreen
         uint32_t                      persistMode = 0;
         std::string                   restoreToken;
-        bool                          restored = false;
-        bool                          started  = false;
+        bool                          restored           = false;
+        bool                          started            = false;
+        bool                          clipboardRequested = false;
 
         // Wayland objects (created on Start)
         SP<CCZwlrVirtualPointerV1>            virtualPointer;
